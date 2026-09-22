@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Agenda Personal Moderna</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#e44332">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="MiAgenda">
     <script>
         (function() {
             try {
@@ -14,6 +19,7 @@
         })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
         tailwind.config = {
@@ -48,6 +54,8 @@
                 font-size: 16px !important;
             }
         }
+        .sortable-ghost { opacity: 0.4; }
+        .sortable-chosen { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
     </style>
 </head>
 <body class="h-full bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 transition-colors duration-200">
@@ -190,16 +198,27 @@
                         <h3 class="font-bold text-sm text-slate-700 dark:text-slate-300 flex items-center gap-2">
                             <i data-lucide="inbox" class="w-4 h-4 text-todoist-red"></i> Todas las tareas
                         </h3>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <select id="inbox-sort" onchange="renderInbox()" class="text-[10px] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 focus:outline-none">
+                                <option value="manual">Orden manual</option>
+                                <option value="priority">Por prioridad</option>
+                                <option value="date">Por fecha</option>
+                                <option value="alpha">Alfabético</option>
+                            </select>
                             <select id="category-filter" onchange="renderInbox()" class="text-[10px] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 focus:outline-none">
                                 <option value="">Todas las etiquetas</option>
                             </select>
+                            <button onclick="toggleSelectionMode()" id="selection-toggle-btn" class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1">Seleccionar</button>
                             <span id="inbox-count" class="text-xs font-semibold text-slate-400">0 tareas</span>
                         </div>
                     </div>
+                    <div class="flex gap-2">
+                        <input type="text" id="quick-add-input" placeholder='Ej: "Llamar al cliente mañana 3pm #Trabajo" y Enter' onkeydown="if(event.key==='Enter'){event.preventDefault(); quickAddTask();}" class="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-todoist-red">
+                        <button onclick="quickAddTask()" class="bg-todoist-red hover:bg-todoist-redHover text-white px-4 rounded-xl text-xs font-semibold shrink-0">Crear</button>
+                    </div>
                     <div id="inbox-tasks-list" class="space-y-2"></div>
                     <button onclick="openModal('task')" class="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-todoist-red dark:text-slate-400 dark:hover:text-todoist-red py-2 px-1 transition-colors">
-                        <i data-lucide="plus-circle" class="w-4 h-4 text-todoist-red"></i> Añadir tarea
+                        <i data-lucide="plus-circle" class="w-4 h-4 text-todoist-red"></i> Tarea con más detalles
                     </button>
                 </section>
 
@@ -537,6 +556,14 @@
         <button onclick="undoLast()" class="font-bold text-red-400 dark:text-todoist-red underline">Deshacer</button>
     </div>
 
+    <!-- BULK ACTION BAR -->
+    <div id="bulk-action-bar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-3 text-xs font-medium z-[70] hidden">
+        <span><span id="bulk-count">0</span> seleccionadas</span>
+        <button onclick="bulkComplete()" class="font-bold text-emerald-400 dark:text-emerald-600">Completar</button>
+        <button onclick="bulkDelete()" class="font-bold text-rose-400 dark:text-rose-600">Eliminar</button>
+        <button onclick="cancelSelection()" class="text-slate-300 dark:text-slate-500">Cancelar</button>
+    </div>
+
     <script>
         // ============ Iconos SVG en línea (sin dependencias externas) ============
         const ICON_PATHS = {
@@ -564,7 +591,8 @@
             'play': '<polygon points="5 3 19 12 5 21 5 3"/>',
             'pause': '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
             'bar-chart-2': '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
-            'sliders': '<line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/>'
+            'sliders': '<line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/>',
+            'copy': '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'
         };
         window.lucide = {
             createIcons: function() {
@@ -633,6 +661,9 @@
         let pomodoroMode = 'work';
         let pomodoroSeconds = 25 * 60;
         let pomodoroRunning = false;
+        let selectionMode = false;
+        let selectedTaskIds = new Set();
+        let inboxSortableInstance = null;
 
         function playClickSound() {
             if (window.state.settings && window.state.settings.soundEnabled === false) return;
@@ -720,6 +751,9 @@
             switchTab((window.state.settings && window.state.settings.startView) || 'inbox');
             initCloud();
             checkAndNotify();
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('service-worker.js').catch(function() {});
+            }
         };
 
         window.saveData = function() {
@@ -925,6 +959,67 @@
             if (cats.includes(current)) sel.value = current;
         }
 
+        // ============ Selección múltiple ============
+        window.toggleSelectionMode = function() {
+            selectionMode = !selectionMode;
+            if (!selectionMode) selectedTaskIds.clear();
+            renderInbox();
+            updateBulkBar();
+        }
+        window.toggleSelectTask = function(id) {
+            if (selectedTaskIds.has(id)) selectedTaskIds.delete(id); else selectedTaskIds.add(id);
+            updateBulkBar();
+        }
+        function updateBulkBar() {
+            const bar = document.getElementById('bulk-action-bar');
+            if (!bar) return;
+            if (selectionMode && selectedTaskIds.size > 0) {
+                bar.classList.remove('hidden');
+                document.getElementById('bulk-count').innerText = selectedTaskIds.size;
+            } else {
+                bar.classList.add('hidden');
+            }
+        }
+        window.bulkComplete = function() {
+            selectedTaskIds.forEach(function(id) {
+                const task = window.state.tasks.find(t => t.id === id);
+                if (task && !task.completed) {
+                    task.completed = true;
+                    task.completedAt = new Date().toISOString();
+                    if (task.repeat && task.repeat !== 'none') {
+                        window.state.tasks.push(Object.assign({}, task, {
+                            id: Date.now() + Math.floor(Math.random() * 1000),
+                            date: nextOccurrence(task.date, task.repeat),
+                            completed: false,
+                            completedAt: null,
+                            order: window.state.tasks.length,
+                            subtasks: (task.subtasks || []).map(s => Object.assign({}, s, { done: false }))
+                        }));
+                    }
+                }
+            });
+            selectedTaskIds.clear();
+            selectionMode = false;
+            saveData();
+            updateBulkBar();
+        }
+        window.bulkDelete = function() {
+            const count = selectedTaskIds.size;
+            openConfirm(`¿Eliminar ${count} tareas seleccionadas?`, function() {
+                window.state.tasks = window.state.tasks.filter(t => !selectedTaskIds.has(t.id));
+                selectedTaskIds.clear();
+                selectionMode = false;
+                saveData();
+                updateBulkBar();
+            });
+        }
+        window.cancelSelection = function() {
+            selectionMode = false;
+            selectedTaskIds.clear();
+            renderInbox();
+            updateBulkBar();
+        }
+
         // ============ Vistas de tareas ============
         function renderInbox() {
             populateCategoryFilter();
@@ -935,15 +1030,50 @@
             if (window.state.searchQuery) {
                 tasks = tasks.filter(t => t.title.toLowerCase().includes(window.state.searchQuery) || t.category.toLowerCase().includes(window.state.searchQuery));
             }
+            const sortSelect = document.getElementById('inbox-sort');
+            const sortMode = sortSelect ? sortSelect.value : 'manual';
+            if (sortMode === 'priority') {
+                const order = { P1: 0, P2: 1, P3: 2, P4: 3 };
+                tasks.sort((a, b) => (order[a.priority] ?? 4) - (order[b.priority] ?? 4));
+            } else if (sortMode === 'date') {
+                tasks.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+            } else if (sortMode === 'alpha') {
+                tasks.sort((a, b) => a.title.localeCompare(b.title, 'es'));
+            }
             document.getElementById('inbox-count').innerText = `${tasks.length} tareas`;
+
+            const selBtn = document.getElementById('selection-toggle-btn');
+            if (selBtn) selBtn.innerText = selectionMode ? 'Cancelar' : 'Seleccionar';
 
             if (tasks.length === 0) {
                 container.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs">No hay tareas pendientes en tu bandeja de entrada.</div>`;
+                if (inboxSortableInstance) { inboxSortableInstance.destroy(); inboxSortableInstance = null; }
                 return;
             }
 
-            container.innerHTML = tasks.map(t => renderTaskItem(t, { draggable: true })).join('');
-            attachDragHandlers(container);
+            const dragEnabled = sortMode === 'manual' && !filterCat && !window.state.searchQuery && !selectionMode;
+            container.innerHTML = tasks.map(t => renderTaskItem(t, { draggable: dragEnabled, selectable: selectionMode })).join('');
+            attachSwipeHandlers(container);
+            initInboxSortable(dragEnabled);
+        }
+
+        function initInboxSortable(enabled) {
+            const container = document.getElementById('inbox-tasks-list');
+            if (inboxSortableInstance) { inboxSortableInstance.destroy(); inboxSortableInstance = null; }
+            if (!container || !enabled || typeof Sortable === 'undefined') return;
+            inboxSortableInstance = new Sortable(container, {
+                handle: '.drag-handle',
+                animation: 150,
+                onEnd: function() {
+                    const ids = Array.from(container.children).map(function(el) { return Number(el.getAttribute('data-task-id')); });
+                    const reordered = ids.map(function(id) { return window.state.tasks.find(function(t) { return t.id === id; }); }).filter(Boolean);
+                    if (reordered.length === window.state.tasks.length) {
+                        window.state.tasks = reordered;
+                        window.state.tasks.forEach(function(t, i) { t.order = i; });
+                        saveData();
+                    }
+                }
+            });
         }
 
         function renderToday() {
@@ -960,6 +1090,7 @@
             }
 
             container.innerHTML = tasks.map(t => renderTaskItem(t)).join('');
+            attachSwipeHandlers(container);
         }
 
         function renderUpcoming() {
@@ -982,6 +1113,7 @@
                     </div>
                 `;
             }).join('');
+            attachSwipeHandlers(container);
         }
 
         function renderTaskItem(t, opts) {
@@ -991,12 +1123,19 @@
             const hasSub = subtasks.length > 0;
             const subDone = subtasks.filter(s => s.done).length;
             const repeatMark = (t.repeat && t.repeat !== 'none') ? ' <span class="text-slate-300 dark:text-slate-600" title="Tarea recurrente">&#8635;</span>' : '';
-            const grip = opts.draggable ? '<i data-lucide="menu" class="w-3 h-3 text-slate-300 dark:text-slate-700 rotate-90 cursor-grab shrink-0 hidden md:block"></i>' : '';
+            const isOverdue = !t.completed && t.date < todayStr();
+            const grip = opts.draggable ? '<i data-lucide="menu" class="drag-handle w-3.5 h-3.5 text-slate-300 dark:text-slate-700 cursor-grab shrink-0 hidden md:block"></i>' : '';
+            const checkbox = opts.selectable ? `<input type="checkbox" onclick="event.stopPropagation()" onchange="toggleSelectTask(${t.id})" ${selectedTaskIds.has(t.id) ? 'checked' : ''} class="w-4 h-4 accent-todoist-red shrink-0">` : '';
             return `
-                <div class="rounded-xl border border-slate-100 dark:border-slate-900 bg-slate-50/50 dark:bg-slate-900/40 hover:bg-slate-100 dark:hover:bg-slate-900 transition-all group" data-task-id="${t.id}" ${opts.draggable ? 'draggable="true"' : ''}>
-                    <div class="flex items-center justify-between p-2.5">
-                        <div class="flex items-center gap-3 min-w-0">
+                <div class="relative rounded-xl overflow-hidden" data-task-id="${t.id}">
+                    <div class="absolute inset-0 flex items-center justify-between text-white pointer-events-none">
+                        <span class="bg-emerald-500 h-full flex items-center px-3 rounded-l-xl"><i data-lucide="check" class="w-4 h-4"></i></span>
+                        <span class="bg-rose-500 h-full flex items-center px-3 rounded-r-xl"><i data-lucide="trash-2" class="w-4 h-4"></i></span>
+                    </div>
+                    <div class="relative flex items-center justify-between p-2.5 rounded-xl border ${isOverdue ? 'border-rose-300 dark:border-rose-900' : 'border-slate-100 dark:border-slate-900'} bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all group" data-swipe-card data-task-id="${t.id}" style="touch-action: pan-y;">
+                        <div class="flex items-center gap-2.5 min-w-0">
                             ${grip}
+                            ${checkbox}
                             <button onclick="toggleTask(${t.id})" class="w-4 h-4 rounded-full border-2 ${priorityColor} flex items-center justify-center transition-all shrink-0 ${t.completed ? 'bg-todoist-red border-todoist-red text-white' : ''}">
                                 ${t.completed ? '<i data-lucide="check" class="w-3 h-3"></i>' : ''}
                             </button>
@@ -1004,18 +1143,19 @@
                                 <p class="text-xs font-medium text-slate-800 dark:text-slate-200 truncate ${t.completed ? 'line-through text-slate-400 dark:text-slate-500' : ''}">${t.title}${repeatMark}</p>
                                 <span class="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 flex-wrap">
                                     <span class="px-1.5 py-0.5 rounded-md font-semibold ${tagClass(t.category)}">#${t.category}</span>
-                                    <span><i data-lucide="calendar" class="w-3 h-3 inline"></i> ${t.date}${t.time ? ' · ' + formatTime(t.time) : ''}</span>
+                                    <span class="${isOverdue ? 'text-rose-500 font-bold' : ''}"><i data-lucide="calendar" class="w-3 h-3 inline"></i> ${t.date}${t.time ? ' · ' + formatTime(t.time) : ''}${isOverdue ? ' · Atrasada' : ''}</span>
                                     ${hasSub ? `<button type="button" onclick="toggleSubtaskPanel(${t.id})" class="underline decoration-dotted">${subDone}/${subtasks.length} subtareas</button>` : ''}
                                 </span>
                             </div>
                         </div>
                         <div class="flex items-center gap-1 shrink-0">
-                            <button onclick="openEditTaskModal(${t.id})" class="p-1 text-slate-400 hover:text-todoist-red"><i data-lucide="edit-3" class="w-3.5 h-3.5"></i></button>
-                            <button onclick="confirmDeleteTask(${t.id})" class="p-1 text-slate-400 hover:text-rose-600"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                            <button onclick="duplicateTask(${t.id})" class="p-1 text-slate-400 hover:text-todoist-red" title="Duplicar"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
+                            <button onclick="openEditTaskModal(${t.id})" class="p-1 text-slate-400 hover:text-todoist-red" title="Editar"><i data-lucide="edit-3" class="w-3.5 h-3.5"></i></button>
+                            <button onclick="confirmDeleteTask(${t.id})" class="p-1 text-slate-400 hover:text-rose-600" title="Eliminar"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
                         </div>
                     </div>
                     ${hasSub ? `
-                    <div id="subtasks-panel-${t.id}" class="hidden px-3 pb-2.5 pl-11 space-y-1">
+                    <div id="subtasks-panel-${t.id}" class="hidden px-3 pb-2.5 pl-11 space-y-1 relative bg-slate-50 dark:bg-slate-900">
                         ${subtasks.map(s => `
                             <label class="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                                 <input type="checkbox" ${s.done ? 'checked' : ''} onchange="toggleSubtask(${t.id}, ${s.id})" class="accent-todoist-red">
@@ -1039,31 +1179,160 @@
             if (st) { st.done = !st.done; saveData(); }
         }
 
-        // ============ Reordenar por arrastre (Bandeja de entrada) ============
-        function attachDragHandlers(container) {
-            let dragId = null;
-            container.querySelectorAll('[data-task-id]').forEach(el => {
-                el.addEventListener('dragstart', e => {
-                    dragId = el.getAttribute('data-task-id');
-                    e.dataTransfer.effectAllowed = 'move';
-                });
-                el.addEventListener('dragover', e => { e.preventDefault(); });
-                el.addEventListener('drop', e => {
-                    e.preventDefault();
-                    const targetId = el.getAttribute('data-task-id');
-                    if (!dragId || dragId === targetId) return;
-                    reorderTasks(Number(dragId), Number(targetId));
+        window.duplicateTask = function(id) {
+            const task = window.state.tasks.find(t => t.id === id);
+            if (!task) return;
+            const copy = JSON.parse(JSON.stringify(task));
+            copy.id = Date.now();
+            copy.title = task.title + ' (copia)';
+            copy.completed = false;
+            copy.completedAt = null;
+            copy.order = window.state.tasks.length;
+            if (copy.subtasks) copy.subtasks.forEach(function(s) { s.done = false; });
+            window.state.tasks.push(copy);
+            saveData();
+        }
+
+        // ============ Deslizar para completar/eliminar (móvil) ============
+        function attachSwipeHandlers(container) {
+            container.querySelectorAll('[data-swipe-card]').forEach(function(card) {
+                let startX = 0, startY = 0, dx = 0, dragging = false, decided = false, horizontal = false;
+                const taskId = Number(card.getAttribute('data-task-id'));
+                card.addEventListener('touchstart', function(e) {
+                    if (e.target.closest('.drag-handle') || e.target.closest('button') || e.target.tagName === 'INPUT') return;
+                    const t = e.touches[0];
+                    startX = t.clientX; startY = t.clientY; dx = 0; dragging = true; decided = false; horizontal = false;
+                    card.style.transition = 'none';
+                }, { passive: true });
+                card.addEventListener('touchmove', function(e) {
+                    if (!dragging) return;
+                    const t = e.touches[0];
+                    const diffX = t.clientX - startX;
+                    const diffY = t.clientY - startY;
+                    if (!decided) {
+                        if (Math.abs(diffX) > 8 || Math.abs(diffY) > 8) {
+                            decided = true;
+                            horizontal = Math.abs(diffX) > Math.abs(diffY);
+                        }
+                    }
+                    if (decided && horizontal) {
+                        if (e.cancelable) e.preventDefault();
+                        dx = diffX;
+                        const clamped = Math.max(-120, Math.min(120, dx));
+                        card.style.transform = `translateX(${clamped}px)`;
+                    }
+                }, { passive: false });
+                card.addEventListener('touchend', function() {
+                    if (!dragging) return;
+                    dragging = false;
+                    card.style.transition = 'transform 0.2s';
+                    if (decided && horizontal) {
+                        if (dx > 80) {
+                            card.style.transform = 'translateX(0)';
+                            toggleTask(taskId);
+                        } else if (dx < -80) {
+                            card.style.transform = 'translateX(0)';
+                            confirmDeleteTask(taskId);
+                        } else {
+                            card.style.transform = 'translateX(0)';
+                        }
+                    } else {
+                        card.style.transform = 'translateX(0)';
+                    }
                 });
             });
         }
-        function reorderTasks(dragIdNum, targetIdNum) {
-            const list = window.state.tasks;
-            const dragIdx = list.findIndex(t => t.id === dragIdNum);
-            const targetIdx = list.findIndex(t => t.id === targetIdNum);
-            if (dragIdx === -1 || targetIdx === -1) return;
-            const [item] = list.splice(dragIdx, 1);
-            list.splice(targetIdx, 0, item);
-            list.forEach((t, i) => t.order = i);
+
+        // ============ Añadir rápido en lenguaje natural ============
+        function parseNaturalTask(raw) {
+            let text = raw.trim();
+            let category = null;
+            const tagMatch = text.match(/#(\S+)/);
+            if (tagMatch) { category = tagMatch[1]; text = text.replace(tagMatch[0], '').trim(); }
+            let priority = 'P2';
+            if (/\burgente\b/i.test(text)) { priority = 'P1'; text = text.replace(/\burgente\b/i, '').trim(); }
+            let date = todayStr();
+            let lower = text.toLowerCase();
+            if (/\bpasado ma[nñ]ana\b/.test(lower)) {
+                const d = new Date(); d.setDate(d.getDate() + 2); date = d.toISOString().split('T')[0];
+                text = text.replace(/pasado ma[nñ]ana/i, '').trim();
+            } else if (/\bma[nñ]ana\b/.test(lower)) {
+                const d = new Date(); d.setDate(d.getDate() + 1); date = d.toISOString().split('T')[0];
+                text = text.replace(/ma[nñ]ana/i, '').trim();
+            } else if (/\bhoy\b/.test(lower)) {
+                text = text.replace(/hoy/i, '').trim();
+            } else {
+                const weekdays = ['domingo', 'lunes', 'martes', 'mi\u00e9rcoles', 'jueves', 'viernes', 's\u00e1bado'];
+                let matchedWeekday = false;
+                for (let i = 0; i < weekdays.length; i++) {
+                    const re = new RegExp('\\b' + weekdays[i] + '\\b', 'i');
+                    if (re.test(text)) {
+                        const d = new Date();
+                        const todayDow = d.getDay();
+                        let diff = (i - todayDow + 7) % 7;
+                        if (diff === 0) diff = 7;
+                        d.setDate(d.getDate() + diff);
+                        date = d.toISOString().split('T')[0];
+                        text = text.replace(re, '').trim();
+                        matchedWeekday = true;
+                        break;
+                    }
+                }
+                if (!matchedWeekday) {
+                    const enDaysMatch = lower.match(/\ben\s+(\d+)\s+d[ií]as?\b/);
+                    if (enDaysMatch) {
+                        const d = new Date(); d.setDate(d.getDate() + parseInt(enDaysMatch[1], 10));
+                        date = d.toISOString().split('T')[0];
+                        text = text.replace(new RegExp(enDaysMatch[0], 'i'), '').trim();
+                    }
+                }
+            }
+            let time = '';
+            let timeMatch = text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|AM|PM)\b/);
+            if (timeMatch) {
+                let h = parseInt(timeMatch[1], 10);
+                const m = timeMatch[2] ? timeMatch[2] : '00';
+                const ap = timeMatch[3].toLowerCase();
+                if (ap === 'pm' && h !== 12) h += 12;
+                if (ap === 'am' && h === 12) h = 0;
+                time = String(h).padStart(2, '0') + ':' + m;
+                text = text.replace(timeMatch[0], '').trim();
+            } else {
+                timeMatch = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+                if (timeMatch) {
+                    time = String(parseInt(timeMatch[1], 10)).padStart(2, '0') + ':' + timeMatch[2];
+                    text = text.replace(timeMatch[0], '').trim();
+                }
+            }
+            text = text.replace(/\s{2,}/g, ' ').trim();
+            return {
+                title: text || raw.trim(),
+                date: date,
+                time: time,
+                category: category || 'General',
+                priority: priority
+            };
+        }
+        window.quickAddTask = function() {
+            const input = document.getElementById('quick-add-input');
+            const raw = input.value.trim();
+            if (!raw) return;
+            const parsed = parseNaturalTask(raw);
+            window.state.tasks.push({
+                id: Date.now(),
+                title: parsed.title,
+                date: parsed.date,
+                time: parsed.time,
+                priority: parsed.priority,
+                repeat: 'none',
+                category: parsed.category,
+                reminderDays: (window.state.settings && window.state.settings.defaultReminderDays != null) ? window.state.settings.defaultReminderDays : 1,
+                completed: false,
+                completedAt: null,
+                subtasks: [],
+                order: window.state.tasks.length
+            });
+            input.value = '';
             saveData();
         }
 
@@ -1103,6 +1372,13 @@
             saveData();
         }
 
+        window.snoozeTask = function(id) {
+            const task = window.state.tasks.find(t => t.id === id);
+            if (!task) return;
+            task.date = nextOccurrence(task.date, 'daily');
+            saveData();
+        }
+
         window.deleteTask = function(id) { confirmDeleteTask(id); }
 
         window.confirmDeleteTask = function(id) {
@@ -1122,7 +1398,11 @@
 
         function renderNotes() {
             const container = document.getElementById('notes-grid');
-            container.innerHTML = window.state.notes.map(n => `
+            let notes = window.state.notes.slice();
+            if (window.state.searchQuery) {
+                notes = notes.filter(n => n.title.toLowerCase().includes(window.state.searchQuery) || n.content.toLowerCase().includes(window.state.searchQuery));
+            }
+            container.innerHTML = notes.length ? notes.map(n => `
                 <div class="bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
                     <div>
                         <div class="flex justify-between items-start mb-1.5">
@@ -1135,7 +1415,7 @@
                         <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">${n.content}</p>
                     </div>
                 </div>
-            `).join('');
+            `).join('') : `<div class="col-span-1 sm:col-span-2 text-center py-8 text-slate-400 text-xs">Sin resultados.</div>`;
         }
 
         window.deleteNote = function(id) { confirmDeleteNote(id); }
@@ -1235,6 +1515,7 @@
                 const dayTasks = window.state.tasks.filter(t => t.date === window.calendarSelected);
                 listLabel.innerText = window.calendarSelected;
                 listEl.innerHTML = dayTasks.length ? dayTasks.map(t => renderTaskItem(t)).join('') : `<div class="text-center py-6 text-slate-400 text-xs">Sin tareas este día.</div>`;
+                attachSwipeHandlers(listEl);
             } else {
                 listLabel.innerText = '';
                 listEl.innerHTML = '';
@@ -1321,14 +1602,17 @@
             } else {
                 const alertHtml = alerts.map(t => `
                     <div class="flex items-center justify-between p-3 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl">
-                        <div class="flex items-center gap-2.5">
-                            <i data-lucide="bell-ring" class="w-4 h-4 text-amber-500"></i>
-                            <div>
-                                <h4 class="text-xs font-semibold text-slate-800 dark:text-slate-200">${t.title}</h4>
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <i data-lucide="bell-ring" class="w-4 h-4 text-amber-500 shrink-0"></i>
+                            <div class="min-w-0">
+                                <h4 class="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">${t.title}</h4>
                                 <p class="text-[10px] text-amber-600 dark:text-amber-400">Vence: ${t.date}${t.time ? ' ' + formatTime(t.time) : ''} (#${t.category})</p>
                             </div>
                         </div>
-                        <button onclick="toggleTask(${t.id})" class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all">Completar</button>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <button onclick="snoozeTask(${t.id})" class="border border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all">Posponer</button>
+                            <button onclick="toggleTask(${t.id})" class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all">Completar</button>
+                        </div>
                     </div>
                 `).join('');
                 container.innerHTML = alertHtml;
