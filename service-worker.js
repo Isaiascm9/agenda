@@ -24,6 +24,8 @@ self.addEventListener('activate', function (event) {
 
 self.addEventListener('fetch', function (event) {
     if (event.request.method !== 'GET') return;
+    const url = new URL(event.request.url);
+    if (url.origin !== self.location.origin) return; // no interceptar peticiones a otros dominios (Google Sheets, etc.)
     event.respondWith(
         caches.match(event.request).then(function (cached) {
             const networkFetch = fetch(event.request)
