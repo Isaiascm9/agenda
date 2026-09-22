@@ -442,6 +442,23 @@
                     </div>
 
                     <div class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-3">
+                        <h4 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Sincronizar con Google Sheets</h4>
+                        <p class="text-[10px] text-slate-400 -mt-2">Guarda tus tareas en una hoja de Google para verlas y editarlas como tabla, y sincronizarlas entre dispositivos. Solo funciona en la versión publicada (por ejemplo GitHub Pages) — dentro de esta vista previa de Claude las conexiones externas están bloqueadas por seguridad.</p>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 mb-1">URL de la Web App</label>
+                            <input type="text" id="settings-sheets-url" placeholder="https://script.google.com/macros/s/XXXX/exec" onchange="updateSetting('sheetsUrl', this.value.trim())" class="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-todoist-red">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-semibold text-slate-400 mb-1">Clave secreta</label>
+                            <input type="text" id="settings-sheets-key" placeholder="La misma que pusiste en Apps Script" onchange="updateSetting('sheetsKey', this.value.trim())" class="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-todoist-red">
+                        </div>
+                        <div class="flex items-center justify-between gap-2 flex-wrap">
+                            <p id="sheets-status" class="text-[10px]"><span class="text-slate-400">Sin configurar</span></p>
+                            <button onclick="initSheetsSync()" class="text-[10px] font-semibold text-todoist-red border border-todoist-red/30 rounded-lg px-2.5 py-1 shrink-0">Probar conexión</button>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-3">
                         <h4 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Datos</h4>
                         <p id="settings-data-count" class="text-xs text-slate-500 dark:text-slate-400"></p>
                         <button onclick="confirmResetData()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-xl text-xs font-semibold">Borrar todo y empezar de cero</button>
@@ -617,7 +634,7 @@
         // ============ Estado y persistencia ============
         const STORAGE_KEY = 'miagenda_data_v3';
         const todayStr = () => new Date().toISOString().split('T')[0];
-        const DEFAULT_SETTINGS = { agendaName: 'MiAgenda', userName: '', timeFormat: '24h', weekStart: 'monday', startView: 'inbox', defaultReminderDays: 1, pomodoroWork: 25, pomodoroBreak: 5, soundEnabled: true };
+        const DEFAULT_SETTINGS = { agendaName: 'MiAgenda', userName: '', timeFormat: '24h', weekStart: 'monday', startView: 'inbox', defaultReminderDays: 1, pomodoroWork: 25, pomodoroBreak: 5, soundEnabled: true, sheetsUrl: '', sheetsKey: '' };
 
         function loadState() {
             let data = null;
@@ -682,14 +699,16 @@
             } catch(e) {}
         }
 
-        // ============ Sincronización en la nube (opcional, por cuenta) ============
+        // ============ Sincronización en la nube (opcional, por cuenta de Claude) ============
         let cloudDocRef = null, cloudPushTimer = null;
+        let firebaseSyncActive = false;
 
-        function setSyncStatus(kind) {
+        function setSyncStatus(kind, source) {
             const label = document.getElementById('user-status-label');
             if (!label) return;
             if (kind === 'synced') {
-                label.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Sincronizado con tu cuenta';
+                const text = source === 'sheets' ? 'Sincronizado con Google Sheets' : 'Sincronizado con tu cuenta';
+                label.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> ' + text;
             } else if (kind === 'connecting') {
                 label.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> Conectando...';
             } else {
@@ -697,15 +716,20 @@
             }
         }
 
+        function updateOverallSyncLabel() {
+            if (firebaseSyncActive) { setSyncStatus('synced', 'cuenta'); return; }
+            if (sheetsSyncActive) { setSyncStatus('synced', 'sheets'); return; }
+            setSyncStatus('local');
+        }
+
         async function initCloud() {
             try {
-                if (!window.claude || !window.claude.use) { setSyncStatus('local'); return; }
-                setSyncStatus('connecting');
+                if (!window.claude || !window.claude.use) { firebaseSyncActive = false; updateOverallSyncLabel(); return; }
                 const dbCap = await window.claude.use('db');
                 const userCap = await window.claude.use('user');
-                if (!dbCap || !userCap) { setSyncStatus('local'); return; }
+                if (!dbCap || !userCap) { firebaseSyncActive = false; updateOverallSyncLabel(); return; }
                 const uid = await userCap.id();
-                if (!uid) { setSyncStatus('local'); return; }
+                if (!uid) { firebaseSyncActive = false; updateOverallSyncLabel(); return; }
                 cloudDocRef = dbCap.doc('data/users/' + uid + '/agenda');
                 cloudDocRef.onSnapshot(function(snap) {
                     if (snap.exists) {
@@ -724,12 +748,15 @@
                     } else {
                         pushCloud();
                     }
-                    setSyncStatus('synced');
+                    firebaseSyncActive = true;
+                    updateOverallSyncLabel();
                 }, function() {
-                    setSyncStatus('local');
+                    firebaseSyncActive = false;
+                    updateOverallSyncLabel();
                 });
             } catch (e) {
-                setSyncStatus('local');
+                firebaseSyncActive = false;
+                updateOverallSyncLabel();
             }
         }
 
@@ -744,12 +771,83 @@
             }).catch(function() {});
         }
 
+        // ============ Sincronización con Google Sheets (opcional) ============
+        let sheetsSyncActive = false;
+        let sheetsPushTimer = null;
+
+        function sheetsConfigured() {
+            const s = window.state.settings || {};
+            return !!(s.sheetsUrl && s.sheetsUrl.trim());
+        }
+        function sheetsUrlWithKey() {
+            const s = window.state.settings || {};
+            const base = (s.sheetsUrl || '').trim();
+            const key = (s.sheetsKey || '').trim();
+            if (!base) return '';
+            const sep = base.indexOf('?') === -1 ? '?' : '&';
+            return key ? (base + sep + 'key=' + encodeURIComponent(key)) : base;
+        }
+        function updateSheetsStatus(kind) {
+            const el = document.getElementById('sheets-status');
+            if (el) {
+                if (kind === 'synced') el.innerHTML = '<span class="text-emerald-500 font-semibold">Conectado y sincronizado</span>';
+                else if (kind === 'connecting') el.innerHTML = '<span class="text-amber-500 font-semibold">Conectando...</span>';
+                else if (kind === 'error') el.innerHTML = '<span class="text-rose-500 font-semibold">No se pudo conectar. Revisa la URL y la clave — y recuerda que esto solo funciona en la versión publicada (GitHub Pages), no aquí dentro de la vista previa de Claude.</span>';
+                else el.innerHTML = '<span class="text-slate-400">Sin configurar</span>';
+            }
+            updateOverallSyncLabel();
+        }
+        window.initSheetsSync = async function() {
+            if (!sheetsConfigured()) { sheetsSyncActive = false; updateSheetsStatus('none'); return; }
+            updateSheetsStatus('connecting');
+            try {
+                const res = await fetch(sheetsUrlWithKey(), { method: 'GET' });
+                if (!res.ok) throw new Error('bad status');
+                const data = await res.json();
+                if (data && data.tasks) {
+                    window.state.tasks = data.tasks;
+                    window.state.notes = data.notes || [];
+                    window.state.pomodoroLog = data.pomodoroLog || [];
+                    const keepUrl = window.state.settings.sheetsUrl;
+                    const keepKey = window.state.settings.sheetsKey;
+                    window.state.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings || {}, { sheetsUrl: keepUrl, sheetsKey: keepKey });
+                    window.state.tasks.forEach(function(t, i) {
+                        if (t.order === undefined) t.order = i;
+                        if (!t.subtasks) t.subtasks = [];
+                        if (!t.repeat) t.repeat = 'none';
+                        if (t.time === undefined) t.time = '';
+                    });
+                    renderAll();
+                }
+                sheetsSyncActive = true;
+                updateSheetsStatus('synced');
+            } catch (e) {
+                sheetsSyncActive = false;
+                updateSheetsStatus('error');
+            }
+        }
+        function pushSheets() {
+            if (!sheetsConfigured()) return;
+            const payload = JSON.stringify({
+                tasks: window.state.tasks,
+                notes: window.state.notes,
+                pomodoroLog: window.state.pomodoroLog,
+                settings: window.state.settings
+            });
+            fetch(sheetsUrlWithKey(), { method: 'POST', body: payload }).then(function(res) {
+                if (res.ok) { sheetsSyncActive = true; updateSheetsStatus('synced'); }
+                else { sheetsSyncActive = false; updateSheetsStatus('error'); }
+            }).catch(function() { sheetsSyncActive = false; updateSheetsStatus('error'); });
+        }
+
         window.onload = function() {
             lucide.createIcons();
             updateHeaderDate();
             renderAll();
             switchTab((window.state.settings && window.state.settings.startView) || 'inbox');
             initCloud();
+            initSheetsSync();
+            setInterval(initSheetsSync, 60000);
             checkAndNotify();
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('service-worker.js').catch(function() {});
@@ -769,6 +867,10 @@
             if (cloudDocRef) {
                 clearTimeout(cloudPushTimer);
                 cloudPushTimer = setTimeout(pushCloud, 400);
+            }
+            if (sheetsConfigured()) {
+                clearTimeout(sheetsPushTimer);
+                sheetsPushTimer = setTimeout(pushSheets, 800);
             }
         };
 
@@ -1687,6 +1789,8 @@
             setVal('settings-default-reminder', s.defaultReminderDays != null ? s.defaultReminderDays : 1);
             setVal('settings-pomodoro-work', s.pomodoroWork || 25);
             setVal('settings-pomodoro-break', s.pomodoroBreak || 5);
+            setVal('settings-sheets-url', s.sheetsUrl || '');
+            setVal('settings-sheets-key', s.sheetsKey || '');
             const soundEl = document.getElementById('settings-sound');
             if (soundEl && document.activeElement !== soundEl) soundEl.checked = s.soundEnabled !== false;
             const tzEl = document.getElementById('settings-timezone');
